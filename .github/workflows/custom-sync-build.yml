@@ -224,6 +224,20 @@ jobs:
             mv "$file" "PiliPlus_android_${{ env.version }}_${abi}.apk"
           done
 
+      - name: Clean Old Android Release Assets
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.sync.outputs.release_tag }}
+        run: |
+          ASSETS=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' 2>/dev/null || true)
+          for asset in $ASSETS; do
+            if [[ "$asset" == PiliPlus_android_*.apk ]]; then
+              gh release delete-asset "$RELEASE_TAG" "$asset" -y || true
+            fi
+          done
+
       - name: Publish to Release
         uses: softprops/action-gh-release@v3
         with:
@@ -292,6 +306,20 @@ jobs:
       - name: Compress Portable Zip
         shell: pwsh
         run: Compress-Archive -Path "Release/PiliPlus-Win" -DestinationPath "PiliPlus_windows_${{ env.version }}_x64_portable.zip"
+
+      - name: Clean Old Windows Release Assets
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.sync.outputs.release_tag }}
+        run: |
+          $assets = gh release view $env:RELEASE_TAG --json assets --jq '.assets[].name' 2>$null
+          foreach ($asset in $assets) {
+            if ($asset -like 'PiliPlus_windows_*') {
+              gh release delete-asset $env:RELEASE_TAG $asset -y
+            }
+          }
 
       - name: Publish to Release
         uses: softprops/action-gh-release@v3
