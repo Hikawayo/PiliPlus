@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:PiliPlus/common/widgets/custom_icon.dart';
+import 'package:PiliPlus/custom/reply_filter.dart';
 import 'package:PiliPlus/grpc/reply.dart';
 import 'package:PiliPlus/models/common/reply/reply_sort_type.dart';
 import 'package:PiliPlus/pages/setting/models/model.dart';
@@ -96,6 +97,7 @@ List<SettingsModel> get replySettings => [
       ReplyGrpc.enableFilter = value.pattern.isNotEmpty;
     },
   ),
+  ...CustomReplyFilter.settings,
   NormalModel(
     title: '线程式评论折叠阈值',
     getSubtitle: () => '当前：「${Pref.foldDepth}」，0为不折叠',

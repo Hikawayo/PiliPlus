@@ -1,4 +1,5 @@
 import 'package:PiliPlus/common/constants.dart';
+import 'package:PiliPlus/custom/reply_filter.dart';
 import 'package:PiliPlus/grpc/bilibili/main/community/reply/v1.pb.dart';
 import 'package:PiliPlus/grpc/bilibili/pagination.pb.dart';
 import 'package:PiliPlus/grpc/grpc_req.dart';
@@ -98,6 +99,7 @@ abstract final class ReplyGrpc {
 
   static bool needRemoveGrpc(ReplyInfo reply) {
     return GlobalData().blackMids.contains(reply.mid.toInt()) ||
+        CustomReplyFilter.shouldBlock(reply) ||
         _blockReplyAtCount(reply) ||
         _blockAtOnlyReply(reply) ||
         (antiGoodsReply && _needRemoveGoodGrpc(reply)) ||

@@ -1,0 +1,315 @@
+name: Custom Sync & Build (Win + Android)
+
+on:
+  schedule:
+    # Check upstream releases every 6 hours
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: "Force build even if upstream release is already synced"
+        required: false
+        default: true
+        type: boolean
+      build_win_x64:
+        description: "Build Windows x64"
+        required: false
+        default: true
+        type: boolean
+      build_android:
+        description: "Build Android APK"
+        required: false
+        default: true
+        type: boolean
+      custom_tag:
+        description: "Optional custom release tag (leave blank to use custom-<upstream_tag>)"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: custom-sync-build
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync Upstream Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+    outputs:
+      should_build: ${{ steps.sync.outputs.should_build }}
+      release_tag: ${{ steps.sync.outputs.release_tag }}
+      upstream_tag: ${{ steps.sync.outputs.upstream_tag }}
+      build_win_x64: ${{ steps.sync.outputs.build_win_x64 }}
+      build_android: ${{ steps.sync.outputs.build_android }}
+
+    steps:
+      - name: Checkout Fork
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check & Merge Upstream Latest Release
+        id: sync
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_REPO: bggRGjQaUbCoE/PiliPlus
+        run: |
+          set -euo pipefail
+
+          # Determine target platforms
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "build_win_x64=${{ inputs.build_win_x64 }}" >> "$GITHUB_OUTPUT"
+            echo "build_android=${{ inputs.build_android }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_win_x64=true" >> "$GITHUB_OUTPUT"
+            echo "build_android=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          UPSTREAM_TAG=$(gh api "repos/${UPSTREAM_REPO}/releases/latest" --jq '.tag_name')
+          if [ -z "$UPSTREAM_TAG" ] || [ "$UPSTREAM_TAG" = "null" ]; then
+            echo "Failed to fetch upstream latest release tag"
+            exit 1
+          fi
+          echo "Upstream latest release: $UPSTREAM_TAG"
+          echo "upstream_tag=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
+
+          CUSTOM_TAG="${{ inputs.custom_tag }}"
+          if [ -n "$CUSTOM_TAG" ]; then
+            RELEASE_TAG="$CUSTOM_TAG"
+          else
+            RELEASE_TAG="custom-${UPSTREAM_TAG}"
+          fi
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+          # Check if we already published this custom release tag
+          TAG_EXISTS=false
+          if git ls-remote --tags origin "refs/tags/${RELEASE_TAG}" | grep -q "${RELEASE_TAG}"; then
+            TAG_EXISTS=true
+          fi
+
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" || git remote set-url upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream "refs/tags/${UPSTREAM_TAG}:refs/tags/${UPSTREAM_TAG}"
+
+          # Check if upstream release commit is already merged into HEAD
+          ALREADY_MERGED=false
+          if git merge-base --is-ancestor "refs/tags/${UPSTREAM_TAG}" HEAD; then
+            ALREADY_MERGED=true
+          fi
+
+          if [ "$ALREADY_MERGED" = "true" ]; then
+            echo "Upstream ${UPSTREAM_TAG} is already merged."
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_build }}" = "true" ]; then
+              echo "Manual force_build enabled; proceeding to build."
+              echo "should_build=true" >> "$GITHUB_OUTPUT"
+            elif [ "$TAG_EXISTS" = "false" ]; then
+              echo "Release tag ${RELEASE_TAG} does not exist yet; proceeding to build."
+              echo "should_build=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Already synced and released ${RELEASE_TAG}; skipping build."
+              echo "should_build=false" >> "$GITHUB_OUTPUT"
+            fi
+            exit 0
+          fi
+
+          # Attempt automatic merge of upstream release tag
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git merge --no-edit -m "chore: merge upstream release ${UPSTREAM_TAG}" "refs/tags/${UPSTREAM_TAG}"; then
+            echo "Cleanly merged upstream release ${UPSTREAM_TAG}."
+            git push origin HEAD:main
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          else
+            CONFLICTS=$(git diff --name-only --diff-filter=U || true)
+            git merge --abort || true
+            echo "Merge conflict detected in:"
+            echo "$CONFLICTS"
+
+            ISSUE_TITLE="[自动同步冲突] 上游版本 ${UPSTREAM_TAG} 合并失败"
+            EXISTING=$(gh issue list --state open --search "\"${ISSUE_TITLE}\" in:title" --json number --jq '.[0].number // empty')
+            if [ -z "$EXISTING" ]; then
+              BODY=$(cat <<EOF
+          自动合并上游 **${UPSTREAM_REPO}** 的新版本 \`${UPSTREAM_TAG}\` 时发生代码冲突，已中止本次自动构建。
+
+          ### 冲突文件
+          \`\`\`
+          ${CONFLICTS}
+          \`\`\`
+
+          ### 本地处理步骤
+          \`\`\`bash
+          git fetch upstream tag ${UPSTREAM_TAG}
+          git merge ${UPSTREAM_TAG}
+          # 解决冲突后提交并推送：
+          git commit
+          git push origin main
+          \`\`\`
+          推送完成后，可在 Actions 页面手动运行 **Custom Sync & Build**（或等待下一次定时检查自动触发打包）。
+          EOF
+              )
+              gh issue create --title "$ISSUE_TITLE" --body "$BODY"
+            else
+              echo "Conflict issue #${EXISTING} already exists; skipping duplicate issue."
+            fi
+
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+  build_android:
+    name: Release Android
+    needs: sync
+    if: ${{ needs.sync.outputs.should_build == 'true' && needs.sync.outputs.build_android == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: "zulu"
+          java-version: "17"
+          cache: "gradle"
+          cache-dependency-path: |
+            android/*.gradle*
+            android/**/gradle-wrapper.properties
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+          cache: true
+
+      - name: Apply Patch
+        shell: pwsh
+        run: lib/scripts/patch.ps1 android
+
+      - name: Analyze Custom Changes
+        run: flutter analyze lib/custom/reply_filter.dart lib/grpc/reply.dart lib/pages/setting/models/reply_settings.dart
+
+      - name: Write Signing Key (Optional)
+        run: |
+          if [ -n "${{ secrets.SIGN_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.SIGN_KEYSTORE_BASE64 }}" | base64 --decode > android/app/key.jks
+            echo "storeFile=key.jks" >> android/key.properties
+            echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}" >> android/key.properties
+            echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> android/key.properties
+            echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> android/key.properties
+          fi
+
+      - name: Set and Extract Version
+        shell: pwsh
+        run: lib/scripts/build.ps1 android
+
+      - name: Flutter Build Release APK
+        run: flutter build apk --release --split-per-abi --dart-define-from-file=pili_release.json --no-pub
+
+      - name: Rename APKs
+        shell: bash
+        run: |
+          for file in build/app/outputs/flutter-apk/app-*-release.apk; do
+            abi=$(echo "$file" | sed -E 's|.*app-(.*)-release\.apk|\1|')
+            mv "$file" "PiliPlus_android_${{ env.version }}_${abi}.apk"
+          done
+
+      - name: Publish to Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.sync.outputs.release_tag }}
+          name: ${{ needs.sync.outputs.release_tag }}
+          files: PiliPlus_android_*.apk
+
+      - name: Upload arm64-v8a Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          archive: false
+          name: Android_arm64-v8a
+          path: PiliPlus_android_*_arm64-v8a.apk
+
+  build_win_x64:
+    name: Release Windows x64
+    needs: sync
+    if: ${{ needs.sync.outputs.should_build == 'true' && needs.sync.outputs.build_win_x64 == 'true' }}
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version-file: pubspec.yaml
+          cache: true
+
+      - name: Add fastforge and Inno Setup
+        run: |
+          dart pub global activate fastforge
+          choco install innosetup
+
+      - name: Add Chinese language file for Inno Setup
+        shell: pwsh
+        run: Copy-Item "windows/packaging/exe/ChineseSimplified.isl" "C:\Program Files (x86)\Inno Setup 6\Languages\ChineseSimplified.isl"
+
+      - name: Set and Extract Version
+        shell: pwsh
+        run: lib/scripts/build.ps1
+
+      - name: Apply Patch
+        shell: pwsh
+        run: lib/scripts/patch.ps1 windows
+
+      - name: Build Windows
+        run: fastforge package --platform windows --targets exe --flutter-build-args="dart-define-from-file=pili_release.json,no-pub" --skip-clean
+
+      - name: Prepare Upload
+        run: |
+          mkdir -p Release/PiliPlus-Win
+          mkdir -p PiliPlus-Win-Setup
+          mv build/windows/x64/runner/Release/* Release/PiliPlus-Win/
+          mv dist/**/*.exe PiliPlus-Win-Setup/PiliPlus_windows_${{ env.version }}_x64_setup.exe
+
+      - name: Compress Portable Zip
+        shell: pwsh
+        run: Compress-Archive -Path "Release/PiliPlus-Win" -DestinationPath "PiliPlus_windows_${{ env.version }}_x64_portable.zip"
+
+      - name: Publish to Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.sync.outputs.release_tag }}
+          name: ${{ needs.sync.outputs.release_tag }}
+          files: |
+            PiliPlus_windows_*.zip
+            PiliPlus-Win-Setup/PiliPlus_windows_*.exe
+
+      - name: Upload Windows Portable Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          archive: false
+          name: Windows-file-x64-release
+          path: PiliPlus_windows_*.zip
+
+      - name: Upload Windows Setup Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          archive: false
+          name: Windows-setup-x64-release
+          path: PiliPlus-Win-Setup/PiliPlus_windows_*.exe
