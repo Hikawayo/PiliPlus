@@ -215,7 +215,7 @@
 
 ## 下载
 
-可以从 [Releases](https://github.com/bggRGjQaUbCoE/PiliPlus/releases) 下载，或克隆仓库拉取代码后在本地编译。
+可以从 [Releases](https://github.com/Hikawayo/PiliPlus/releases) 下载，或克隆仓库拉取代码后在本地编译。
 
 <br/>
 
