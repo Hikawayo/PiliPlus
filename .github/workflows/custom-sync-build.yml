@@ -197,7 +197,7 @@ jobs:
         run: lib/scripts/patch.ps1 android
 
       - name: Analyze Custom Changes
-        run: flutter analyze lib/custom/reply_filter.dart lib/grpc/reply.dart lib/pages/setting/models/reply_settings.dart
+        run: flutter analyze lib/custom/reply_filter.dart lib/custom/webdav_picker.dart lib/grpc/reply.dart lib/pages/setting/models/reply_settings.dart lib/pages/webdav/view.dart
 
       - name: Write Signing Key (Optional)
         run: |

@@ -1,4 +1,5 @@
 import 'package:PiliPlus/common/style.dart';
+import 'package:PiliPlus/custom/webdav_picker.dart';
 import 'package:PiliPlus/common/widgets/scaffold/simple_scaffold.dart';
 import 'package:PiliPlus/common/widgets/view_insets_safe_area.dart';
 import 'package:PiliPlus/pages/webdav/webdav.dart';
@@ -100,7 +101,7 @@ class _WebDavSettingPageState extends State<WebDavSettingPage> {
                         borderRadius: Style.mdRadius,
                       ),
                     ),
-                    onPressed: WebDav().backup,
+                    onPressed: () => CustomWebDavPicker.backup(context),
                     child: const Text('备份设置'),
                   ),
                 ),
@@ -112,7 +113,7 @@ class _WebDavSettingPageState extends State<WebDavSettingPage> {
                         borderRadius: Style.mdRadius,
                       ),
                     ),
-                    onPressed: WebDav().restore,
+                    onPressed: () => CustomWebDavPicker.restore(context),
                     child: const Text('恢复设置'),
                   ),
                 ),
