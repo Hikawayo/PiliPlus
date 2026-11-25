@@ -148,7 +148,7 @@ abstract final class CustomWebDavPicker {
     return res ?? false;
   }
 
-  static Future<String?> _promptNewFileName(BuildContext context) async {
+  static Future<String?> _promptNewFileName(BuildContext context) {
     String fileName = _defaultNewFileName();
     return showDialog<String>(
       context: context,

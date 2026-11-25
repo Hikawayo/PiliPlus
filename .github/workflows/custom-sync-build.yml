@@ -275,7 +275,9 @@ jobs:
 
       - name: Apply Patch
         shell: pwsh
-        run: lib/scripts/patch.ps1 windows
+        run: |
+          git -C "$env:FLUTTER_ROOT" reset --hard HEAD
+          lib/scripts/patch.ps1 windows
 
       - name: Build Windows
         run: fastforge package --platform windows --targets exe --flutter-build-args="dart-define-from-file=pili_release.json,no-pub" --skip-clean
