@@ -1,3 +1,4 @@
+import 'package:PiliPlus/custom/search_filter.dart';
 import 'package:PiliPlus/http/video.dart';
 import 'package:PiliPlus/models/common/rcmd_source.dart';
 import 'package:PiliPlus/pages/rcmd/controller.dart';
@@ -108,6 +109,7 @@ List<SettingsModel> get recommendSettings => [
     defaultVal: true,
     onChanged: (value) => RecommendFilter.applyFilterToRelatedVideos = value,
   ),
+  ...CustomSearchFilter.settings,
 ];
 
 Future<void> _showRcmdSourceDialog(

@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:PiliPlus/custom/search_filter.dart';
 import 'package:PiliPlus/http/loading_state.dart';
 import 'package:PiliPlus/models/common/search/video_search_type.dart';
 import 'package:PiliPlus/models/search/result.dart';
@@ -72,9 +73,26 @@ class SearchVideoController
     pubEndDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
   }
 
+  final Set<String> _seenVideoKeys = <String>{};
+
   @override
   List<SearchVideoItemModel>? getDataList(SearchVideoData response) {
     return response.list;
+  }
+
+  @override
+  void handleListResponse(List<SearchVideoItemModel> dataList) {
+    CustomSearchFilter.filterVideos(
+      keyword: keyword,
+      dataList: dataList,
+      seenKeys: _seenVideoKeys,
+    );
+  }
+
+  @override
+  Future<void> onRefresh() {
+    _seenVideoKeys.clear();
+    return super.onRefresh();
   }
 
   final Rx<ArchiveFilterType> selectedType = ArchiveFilterType.totalrank.obs;
